@@ -198,6 +198,7 @@ public class KafkaStreamsFilter
         streamsConfig.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass().getName());
 
 //        StreamsBuilder  builder = KafkaStreamsFilter.testFilter(streamsConfig,"test","filter");
+//        StreamsBuilder  builder = KafkaStreamsFilter.testBranch(streamsConfig,"test","test","okfilter", "kofilter");
         StreamsBuilder  builder = KafkaStreamsFilter.testBranchDynamic(streamsConfig,"test","okfilter", "kofilter");
         KafkaStreams streams = new KafkaStreams(builder.build(), streamsConfig);
         streams.start();
@@ -252,7 +253,6 @@ public class KafkaStreamsFilter
 
     private static boolean testCondition (String key, String value)
     {
-
         if (value.indexOf("hello") >= 0)
         {
             System.out.println ("Accept "+value);
