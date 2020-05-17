@@ -1,4 +1,30 @@
 /*
+ested enrichment use case
+data : key is not set in kafka - we need to extract it from the value - 5000 <> keys for test with a data set of 100.000 records ( 20 per key )
+refdata : key is set - 5000 <> keys for test
+Test condition:
+
+1/ machine used:  windows 8 on home laptop - intel celeron cpu 1005M - 1.9 Ghz - 8GB Ram - spinning disk
+2/ Apache Kafka 2.4.1
+3/ Apache  zookeeper 3.6.0
+
+4/ Kafka setup:
+
+C:\frank\apache-kafka-2.4.1\bin\windows>dir c:\frank\apa*
+ Le volume dans le lecteur C s'appelle TI31128200B
+ Le numéro de série du volume est F063-B02B
+
+ Répertoire de c:\frank
+
+04-04-20  19:25    <DIR>          apache-kafka-2.4.1
+04-04-20  19:22    <DIR>          apache-zookeeper-3.6.0
+
+cd C:\frank\apache-zookeeper-3.6.0\bin
+zkServer.cmd
+
+cd C:\frank\apache-kafka-2.4.1\bin\windows
+kafka-server-start.bat ..\..\config\server.properties
+
 kafka-topics.bat --zookeeper localhost:2181 --delete --topic ktest
 kafka-topics.bat --zookeeper localhost:2181 --delete --topic kref
 kafka-topics.bat --zookeeper localhost:2181 --delete --topic kresult
@@ -7,21 +33,62 @@ kafka-topics.bat  --zookeeper localhost:2181 --create --replication-factor 1 --p
 kafka-topics.bat  --zookeeper localhost:2181 --create --replication-factor 1 --partitions 4 --topic kref
 kafka-topics.bat  --zookeeper localhost:2181 --create --replication-factor 1 --partitions 4 --topic kresult
 
-kafka-console-producer.bat --broker-list localhost:9092 --property "parse.key=true" --property "key.separator=|" --topic kref
-KeyA|"reference-data": "reference A"
-KeyB|"reference-data": "reference B"
-KeyC|"reference-data": "reference C"
-KeyD|"reference-data": "reference D"
+C:\frank\apache-kafka-2.4.1\bin\windows>kafka-topics.bat --zookeeper localhost:2181 --describe
+Topic: __consumer_offsets       PartitionCount: 50      ReplicationFactor: 1    Configs: compression.type=producer,cleanup.policy=compact,segment.bytes=104857600
+        Topic: __consumer_offsets       Partition: 0    Leader: 0       Replicas: 0     Isr: 0
+        Topic: __consumer_offsets       Partition: 1    Leader: 0       Replicas: 0     Isr: 0
+[...]
+        Topic: __consumer_offsets       Partition: 47   Leader: 0       Replicas: 0     Isr: 0
+        Topic: __consumer_offsets       Partition: 48   Leader: 0       Replicas: 0     Isr: 0
+        Topic: __consumer_offsets       Partition: 49   Leader: 0       Replicas: 0     Isr: 0
+Topic: kref     PartitionCount: 4       ReplicationFactor: 1    Configs:
+        Topic: kref     Partition: 0    Leader: 0       Replicas: 0     Isr: 0
+        Topic: kref     Partition: 1    Leader: 0       Replicas: 0     Isr: 0
+        Topic: kref     Partition: 2    Leader: 0       Replicas: 0     Isr: 0
+        Topic: kref     Partition: 3    Leader: 0       Replicas: 0     Isr: 0
+Topic: kresult  PartitionCount: 4       ReplicationFactor: 1    Configs:
+        Topic: kresult  Partition: 0    Leader: 0       Replicas: 0     Isr: 0
+        Topic: kresult  Partition: 1    Leader: 0       Replicas: 0     Isr: 0
+        Topic: kresult  Partition: 2    Leader: 0       Replicas: 0     Isr: 0
+        Topic: kresult  Partition: 3    Leader: 0       Replicas: 0     Isr: 0
+Topic: ktest    PartitionCount: 4       ReplicationFactor: 1    Configs:
+        Topic: ktest    Partition: 0    Leader: 0       Replicas: 0     Isr: 0
+        Topic: ktest    Partition: 1    Leader: 0       Replicas: 0     Isr: 0
+        Topic: ktest    Partition: 2    Leader: 0       Replicas: 0     Isr: 0
+        Topic: ktest    Partition: 3    Leader: 0       Replicas: 0     Isr: 0
+Topic: testjoin1-KSTREAM-KEY-SELECT-0000000001-repartition      PartitionCount: 4       ReplicationFactor: 1    Configs: cleanup.policy=delete,segment.bytes=52428800,retention.ms=-1
+        Topic: testjoin1-KSTREAM-KEY-SELECT-0000000001-repartition      Partition: 0    Leader: 0       Replicas: 0     Isr: 0
+        Topic: testjoin1-KSTREAM-KEY-SELECT-0000000001-repartition      Partition: 1    Leader: 0       Replicas: 0     Isr: 0
+        Topic: testjoin1-KSTREAM-KEY-SELECT-0000000001-repartition      Partition: 2    Leader: 0       Replicas: 0     Isr: 0
+        Topic: testjoin1-KSTREAM-KEY-SELECT-0000000001-repartition      Partition: 3    Leader: 0       Replicas: 0     Isr: 0
+Topic: testjoin1-kref-STATE-STORE-0000000002-changelog  PartitionCount: 4       ReplicationFactor: 1    Configs: cleanup.policy=compact
+        Topic: testjoin1-kref-STATE-STORE-0000000002-changelog  Partition: 0    Leader: 0       Replicas: 0     Isr: 0
+        Topic: testjoin1-kref-STATE-STORE-0000000002-changelog  Partition: 1    Leader: 0       Replicas: 0     Isr: 0
+        Topic: testjoin1-kref-STATE-STORE-0000000002-changelog  Partition: 2    Leader: 0       Replicas: 0     Isr: 0
+        Topic: testjoin1-kref-STATE-STORE-0000000002-changelog  Partition: 3    Leader: 0       Replicas: 0     Isr: 0
 
-kafka-console-producer.bat --broker-list localhost:9092 --topic ktest
-{"field1": "data A", "field2": "data AA", "key": "KeyA"}
-{"field1": "data B", "field2": "data BB", "key": "KeyB"}
-{"field1": "data C", "field2": "data CC", "key": "KeyC"}
-{"field1": "data D", "field2": "data DD", "key": "KeyD"}
-{"field1": "data E", "field2": "data EE", "key": "KeyE"}
+kafka-console-consumer.bat -bootstrap-server localhost:9092 --from-beginning --property print.key=true --property print.timestamp=true --topic ktresult
+
+Line 0      : CreateTime:1589645542024	Key9	{ "key": "Key9","data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA9", "key": "Key9","reference_data": "reference_9"}}
+Line 1      : CreateTime:1589645542024	Key11	{ "key": "Key11","data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA11", "key": "Key11","reference_data": "reference_11"}}
+[...]
+line 100000 : CreateTime:1589645555720	Key4998	{ "key": "Key4998","data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA99998", "key": "Key4998","reference_data": "reference_4998"}}
 
 
-kafka-console-consumer.bat --bootstrap-server localhost:9092 --from-beginning --property print.key=true --topic kresult
+5/ results ( see attachments )
+one instance of kstream application, running on same host as 1 node kafka cluster
+kafka stream using only 1 thread
+kafka topics using 4 partitions
+100.000 data created in ktest topic
+data record size :  +- 1050 bytes
+5.000 ref data created in kref topic
+refdata record size : +- 100 bytes
+launch ( from intellij ) kstream join process
+=> produce 100.000 joined records in kresult topic
+Saturday 16 May 2020 16:12:22.024 GMT ( first "joined" message )
+Saturday 16 May 2020 16:12:35.720 GMT ( last "joined" message )
+
+100.000 data with 5.000 ref data  in 14.7 sec -> 6802 msg enriched per sec
 
  */
 
@@ -50,9 +117,11 @@ public class KafkaStreamsJoin {
     private final String bootstrapServer = "localhost:9092";
     private final String applicationId = "testjoin1";
     private final int nbStreamsThread = 1;
-    private int nbRec = 10000; // 500 for enrich;
+    private int nbRefData = 5000;
+    private int nbRec = 100000;
     private int recordLengh = 1024;
     private String action = "enrich";
+    private boolean verbose = true;
 
     //-------------------------------------------------------------------
 
@@ -70,18 +139,32 @@ public class KafkaStreamsJoin {
 
     private void getArgs (String[] args)
     {
-        for (int i = 0; i < args.length-1; i++)
+        for (int i = 0; i < args.length-1; i++)             // length-1 as last arg should be a value not an arg name
         {
             if (args[i].compareToIgnoreCase("-nbRec") == 0) this.nbRec = Integer.parseInt(args[i+1]);
+            else if (args[i].compareToIgnoreCase("-nbRefData") == 0) this.nbRefData = Integer.parseInt(args[i+1]);
             else if (args[i].compareToIgnoreCase("-recordLength") == 0) this.recordLengh = Integer.parseInt(args[i+1]);
             else if (args[i].compareToIgnoreCase("-action") == 0) this.action = args[i+1];
+            else if (args[i].compareToIgnoreCase("-v") == 0)
+            {
+                if (args[i+1].compareToIgnoreCase("true") == 0) this.verbose = true;
+                else this.verbose = false;
+            }
         }
-        System.out.println ("Parameters:");
-        System.out.println (" nbRec       : "+this.nbRec);
-        System.out.println (" recordLengh : "+this.recordLengh);
-        System.out.println (" action      : "+this.action);
-        System.out.println ("");
+        this.print ("Parameters:");
+        this.print (" nbRec       : "+this.nbRec);
+        this.print (" nbRefData   : "+this.nbRefData);
+        this.print (" recordLengh : "+this.recordLengh);
+        this.print (" action      : "+this.action);
+        this.print ("");
 
+    }
+
+    //-------------------------------------------------------------------
+
+    private void print (String data)
+    {
+        if (this.verbose) System.out.println (data);
     }
 
     //-------------------------------------------------------------------
@@ -99,16 +182,17 @@ public class KafkaStreamsJoin {
 
         final Producer<String, String> producer = new KafkaProducer<>(props_producer);
 
+        this.print (dateFormat.format(new Date())+">Ref data generation starting");
         StringBuilder dataBuilder = new StringBuilder("\"data\": \"");
         for (int i = 0; i < this.recordLengh; i++) dataBuilder.append ("A");
 
-        for (int i = 0; i  < this.nbRec; i++)
+        for (int i = 0; i  < this.nbRefData; i++)
         {
             try {
                 String key = "Key"+i;
                 String record = "{ \"key\": \""+key+"\","+"\"reference_data\": \"reference_"+i+"\"}";
 
-                if (i%100 == 0) System.out.println(dateFormat.format(new Date())+">Produced "+i);
+                if (i%100 == 0) this.print (dateFormat.format(new Date())+">Produced "+i);
 
                 final ProducerRecord<String, String> pr = new ProducerRecord<>("kref", key, record);
                 producer.send(pr);
@@ -116,6 +200,7 @@ public class KafkaStreamsJoin {
                 e.printStackTrace();
             }
         }
+        this.print (dateFormat.format(new Date())+">Ref data generation done");
         producer.close();
     }
 
@@ -134,13 +219,14 @@ public class KafkaStreamsJoin {
 
         final Producer<String, String> producer = new KafkaProducer<>(props_producer);
 
+        this.print (dateFormat.format(new Date())+">Data generation starting");
         StringBuilder dataBuilder = new StringBuilder("\"data\": \"");
         for (int i = 0; i < this.recordLengh; i++) dataBuilder.append ("A");
 
         for (int i = 0; i  < this.nbRec; i++)
         {
             try {
-                String key = "Key"+(i%500);
+                String key = "Key"+(i%this.nbRefData);
                 String record = "{ \"key\": \""+key+"\","+dataBuilder.toString()+i+"\"}";
 
                 if (i%100 == 0) System.out.println(dateFormat.format(new Date())+">Produced "+i);
@@ -151,6 +237,7 @@ public class KafkaStreamsJoin {
                 e.printStackTrace();
             }
         }
+        this.print (dateFormat.format(new Date())+">Ref data generation done");
         producer.close();
     }
 
@@ -180,29 +267,32 @@ public class KafkaStreamsJoin {
                 });
 
         // display join result
-        resultStream
-                .foreach((k, v) -> {
-                    System.out.println(dateFormat.format(new Date())+"> Key: [ " + k + " ]  Value: [ " + v + " ]");
-                });
+        if (this.verbose) {
+            resultStream
+                    .foreach((k, v) -> {
+                        System.out.println(dateFormat.format(new Date()) + "> Key: [ " + k + " ]  Value: [ " + v + " ]");
+                    });
+        }
         // send result into result topic
         resultStream.to("kresult", Produced.with (Serdes.String(), Serdes.String()) );
 
         KafkaStreams streams = new KafkaStreams(builder.build(), props);
         streams.cleanUp();
-        System.out.println("Starting ..."+new Date());
+        this.print (dateFormat.format(new Date()) + ">Starting ...");
         streams.start();
 
         Runtime.getRuntime().addShutdownHook(new Thread(streams::close));
     }
 
     //--------------------------------------------------
+
+    // ok this is not the right way to do a json field content extraction but this is fast
     private String getKey ( String key, String value)
     {
         int pos = value.indexOf("\"key\": \"");
         int start = pos + "\"key\": \"".length();
         int end = value.indexOf("\"",start);
         String result = value.substring(start,end);
-        System.out.println("key = "+result);
         return result;
     }
 
