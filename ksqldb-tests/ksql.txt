@@ -1,0 +1,495 @@
+https://www.confluent.io/blog/build-materialized-cache-with-ksqldb/
+
+docker run -d \
+ --net=host \
+  --name=control-center \
+  --ulimit nofile=16384:16384 \
+  -e CONTROL_CENTER_ZOOKEEPER_CONNECT=localhost:32181 \
+  -e CONTROL_CENTER_BOOTSTRAP_SERVERS=localhost:29092 \
+  -e CONTROL_CENTER_REPLICATION_FACTOR=1 \
+  -e CONTROL_CENTER_CONNECT_CLUSTER=http://localhost:28082 \
+  -v /home/frank/kafka/cccdata:/var/lib/confluent-control-center \
+  confluentinc/cp-enterprise-control-center:latest
+
+
+docker run -d \
+  --net=host \
+  --name=zookeeper \
+  -e ZOOKEEPER_CLIENT_PORT=32181 \
+  -e ZOOKEEPER_TICK_TIME=2000 \
+  -e ZOOKEEPER_SYNC_LIMIT=2 \
+  -v /home/frank/kafka/zkdata:/var/lib/zookeeper/data \
+  confluentinc/cp-zookeeper:latest
+
+docker run -d \
+  --net=host \
+  --name=kafka \
+  -e KAFKA_ZOOKEEPER_CONNECT=localhost:32181 \
+  -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:29092 \
+  -e KAFKA_BROKER_ID=1 \
+  -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+  -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+  -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+  -e KAFKA_METRIC_REPORTERS=io.confluent.metrics.reporter.ConfluentMetricsReporter \
+  -e CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS=localhost:29092  \
+  -e CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS=1 \
+  -v /home/frank/kafka/data:/var/lib/kafka/data \
+  confluentinc/cp-enterprise-kafka:latest
+
+docker run -d \
+  --net=host \
+  --name=ksqldb-server \
+  -e KSQL_BOOTSTRAP_SERVERS=localhost:29092 \
+  -e KSQL_LISTENERS=http://localhost:28088 \
+  -e KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE="true" \
+  -e KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE="true" \
+  -e KSQL_KSQL_INTERNAL_TOPIC_REPLICAS=1 \
+  confluentinc/ksqldb-server:latest
+
+
+docker exec -it ksqldb-cli ksql http://ksqldb-server:8088
+
+docker run --net=host --rm --interactive --tty \
+    confluentinc/ksqldb-cli:latest ksql \
+    http://127.0.0.1:28088
+
+----------------------------------------------------------------------
+-- First (unsuccessful) tests
+----------------------------------------------------------------------
+
+CREATE STREAM sessionHandler
+  (keyId VARCHAR, value VARCHAR)
+  WITH (kafka_topic='sessions', key='keyId', value_format='json', partitions=1); 
+
+INSERT INTO sessionHandler (keyId, value) VALUES ('a', 'valueaa');
+INSERT INTO sessionHandler (keyId, value) VALUES ('b', 'valuebb');
+INSERT INTO sessionHandler (keyId, value) VALUES ('c', 'valuecc');
+
+SET 'auto.offset.reset' = 'earliest';
+
+SELECT * FROM sessionHandler;
+
+
+CREATE TABLE sessionHandler_view AS
+  SELECT keyId, value, count(*)
+  FROM sessionHandler
+  GROUP BY  KeyId, value
+  EMIT CHANGES;
+
+
+SELECT * from sessionHandler_view WHERE keyId='b';
+
+
+SELECT rowkey, keyId, value, count(*)
+  FROM sessionHandler
+  GROUP BY rowkey, KeyId, value
+  EMIT CHANGES;
+
+
+ksql> SHOW QUERIES;
+
+ Query ID                   | Query Type | Status    | Sink Name           | Sink Kafka Topic    | Query String                                                                                                                                                                                                                                                                                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------
+ CTAS_MOUNTAIN_VIEW_5       | PERSISTENT | RUNNING:1 | MOUNTAIN_VIEW       | MOUNTAIN_VIEW       | CREATE TABLE MOUNTAIN_VIEW WITH (KAFKA_TOPIC='MOUNTAIN_VIEW', PARTITIONS=1, REPLICAS=1) AS SELECT   RIDERLOCATIONS.PROFILEID PROFILEID,   COUNT(*) PINGS FROM RIDERLOCATIONS RIDERLOCATIONS WINDOW TUMBLING ( SIZE 1 HOURS )  WHERE (GEO_DISTANCE(RIDERLOCATIONS.LATITUDE, RIDERLOCATIONS.LONGITUDE, 37.4133, -122.1162) <= 5) GROUP BY RIDERLOCATIONS.PROFILEID EMIT CHANGES; 
+ CTAS_SESSIONHANDLER_VIEW_0 | PERSISTENT | RUNNING:1 | SESSIONHANDLER_VIEW | SESSIONHANDLER_VIEW | CREATE TABLE SESSIONHANDLER_VIEW WITH (KAFKA_TOPIC='SESSIONHANDLER_VIEW', PARTITIONS=1, REPLICAS=1) AS SELECT   SESSIONHANDLER.KEYID KEYID,   SESSIONHANDLER.VALUE VALUE,   COUNT(*) KSQL_COL_0 FROM SESSIONHANDLER SESSIONHANDLER GROUP BY SESSIONHANDLER.KEYID, SESSIONHANDLER.VALUE EMIT CHANGES;                                                                           
+----------------------------------------------------------------------------------------------------------------------------------
+For detailed information on a Query run: EXPLAIN <Query ID>;
+ksql> TERMINATE CTAS_MOUNTAIN_VIEW_5;
+
+ Message           
+-------------------
+ Query terminated. 
+-------------------
+ksql> TERMINATE CTAS_SESSIONHANDLER_VIEW_0;
+
+ Message           
+-------------------
+ Query terminated. 
+-------------------
+ksql> drop table SESSIONHANDLER_VIEW;
+
+ Message                                                                
+------------------------------------------------------------------------
+ Source `SESSIONHANDLER_VIEW` (topic: SESSIONHANDLER_VIEW) was dropped. 
+------------------------------------------------------------------------
+ksql> drop stream SESSIONHANDLER;
+
+ Message                                                
+--------------------------------------------------------
+ Source `SESSIONHANDLER` (topic: sessions) was dropped. 
+--------------------------------------------------------
+ksql> 
+ksql> 
+
+ksql> print kref from beginning;
+Key format: JSON or KAFKA_STRING
+Value format: JSON or KAFKA_STRING
+rowtime: 2020/05/31 09:59:17.600 Z, key: 1, value: {"fname": "frank", "lname": "polet"}
+rowtime: 2020/05/31 09:59:17.621 Z, key: 3, value: {"fname": "paul", "lname": "durant"}
+rowtime: 2020/05/31 09:59:18.972 Z, key: 4, value: {"fname": "jacques", "lname": "dupont"}
+rowtime: 2020/05/31 09:59:17.619 Z, key: 2, value: {"fname": "pierre", "lname": "dujoie"}
+^CTopic printing ceased
+ksql> 
+
+ksql> CREATE STREAM ref
+>( 
+>  fname varchar,
+>  lname varchar
+>)
+>WITH (
+>    kafka_topic = 'kref',
+>    value_format = 'json'
+>);
+
+ Message        
+----------------
+ Stream created 
+----------------
+ksql> show streams;
+
+ Stream Name         | Kafka Topic                 | Format 
+------------------------------------------------------------
+ KSQL_PROCESSING_LOG | default_ksql_processing_log | JSON   
+ REF                 | kref                        | JSON   
+------------------------------------------------------------
+
+ksql> describe REF;
+
+Name                 : REF
+ Field  | Type                   
+---------------------------------
+ ROWKEY | VARCHAR(STRING)  (key) 
+ FNAME  | VARCHAR(STRING)        
+ LNAME  | VARCHAR(STRING)        
+---------------------------------
+For runtime statistics and query details run: DESCRIBE EXTENDED <Stream,Table>;
+ksql> 
+
+ksql> select * from ref emit changes;
++-----------------------------------------+-----------------------------------------+-----------------------------------------+
+|ROWKEY                                   |FNAME                                    |LNAME                                    |
++-----------------------------------------+-----------------------------------------+-----------------------------------------+
+|1                                        |frank                                    |polet                                    |
+|3                                        |paul                                     |durant                                   |
+|2                                        |pierre                                   |dujoie                                   |
+|4                                        |jacques                                  |dupont                                   |
+^CQuery terminated
+ksql> 
+>CREATE TABLE tref
+>  (fname varchar,
+>   lname varchar)
+>  WITH (KAFKA_TOPIC = 'kref',
+>        VALUE_FORMAT='JSON');
+
+ Message       
+---------------
+ Table created 
+---------------
+ksql> show tables;
+
+ Table Name    | Kafka Topic   | Format | Windowed 
+---------------------------------------------------
+ MOUNTAIN_VIEW | MOUNTAIN_VIEW | JSON   | true     
+ TREF          | kref          | JSON   | false    
+---------------------------------------------------
+
+ksql> select * from tref emit changes;
++-----------------------------------------+-----------------------------------------+-----------------------------------------+
+|ROWKEY                                   |FNAME                                    |LNAME                                    |
++-----------------------------------------+-----------------------------------------+-----------------------------------------+
+|1                                        |frank                                    |polet                                    |
+|3                                        |paul                                     |durant                                   |
+|4                                        |jacques                                  |dupont                                   |
+|2                                        |pierre                                   |dujoie                                   |
+^CQuery terminated
+ksql> 
+
+ksql> CREATE TABLE ref_view AS
+>  SELECT fname,lname FROM tref
+>  EMIT CHANGES;
+>
+
+ Message                               
+---------------------------------------
+ Created query with ID CTAS_REF_VIEW_9 
+---------------------------------------
+ksql> show tables;
+
+ Table Name    | Kafka Topic   | Format | Windowed 
+---------------------------------------------------
+ MOUNTAIN_VIEW | MOUNTAIN_VIEW | JSON   | true     
+ REF_VIEW      | REF_VIEW      | JSON   | false    
+ TREF          | kref          | JSON   | false    
+---------------------------------------------------
+
+ksql> describe ref_view;
+
+Name                 : REF_VIEW
+ Field  | Type                           
+-----------------------------------------
+ ROWKEY | VARCHAR(STRING)  (primary key) 
+ FNAME  | VARCHAR(STRING)                
+ LNAME  | VARCHAR(STRING)                
+-----------------------------------------
+For runtime statistics and query details run: DESCRIBE EXTENDED <Stream,Table>;
+ksql> 
+
+ksql> print REF_VIEW;
+Key format: JSON or KAFKA_STRING
+Value format: JSON or KAFKA_STRING
+rowtime: 2020/05/31 09:59:18.972 Z, key: 4, value: {"FNAME":"jacques","LNAME":"dupont"}
+rowtime: 2020/05/31 09:59:17.619 Z, key: 2, value: {"FNAME":"pierre","LNAME":"dujoie"}
+rowtime: 2020/05/31 09:59:17.600 Z, key: 1, value: {"FNAME":"frank","LNAME":"polet"}
+rowtime: 2020/05/31 09:59:17.621 Z, key: 3, value: {"FNAME":"paul","LNAME":"durant"}
+^CTopic printing ceased
+ksql> 
+
+>CREATE TABLE ref_view AS
+>  SELECT fname,lname,count(*) as nb_val FROM tref
+>  group by fname,lname
+>  EMIT CHANGES;
+
+ Message                                
+----------------------------------------
+ Created query with ID CTAS_REF_VIEW_25 
+----------------------------------------
+ksql> show tables;
+
+ Table Name    | Kafka Topic   | Format | Windowed 
+---------------------------------------------------
+ MOUNTAIN_VIEW | MOUNTAIN_VIEW | JSON   | true     
+ REF_VIEW      | REF_VIEW      | JSON   | false    
+ TREF          | kref          | JSON   | false    
+---------------------------------------------------
+ksql> describe REF_VIEW;
+
+Name                 : REF_VIEW
+ Field  | Type                           
+-----------------------------------------
+ ROWKEY | VARCHAR(STRING)  (primary key) 
+ FNAME  | VARCHAR(STRING)                
+ LNAME  | VARCHAR(STRING)                
+ NB_VAL | BIGINT                         
+-----------------------------------------
+For runtime statistics and query details run: DESCRIBE EXTENDED <Stream,Table>;
+ksql> select * from REF_VIEW where ROWKEY='1';
++------------------------------+------------------------------+------------------------------+------------------------------+
+|ROWKEY                        |FNAME                         |LNAME                         |NB_VAL                        |
++------------------------------+------------------------------+------------------------------+------------------------------+
+Query terminated
+ksql> print REF_VIEW;
+Key format: KAFKA_STRING
+Value format: JSON or KAFKA_STRING
+rowtime: 2020/05/31 09:59:17.621 Z, key: [paul|@3133489896335961716/-], value: {"FNAME":"paul","LNAME":"durant","NB_VAL":1}
+rowtime: 2020/05/31 09:59:17.619 Z, key: [pierre|@3133489896202660197/-], value: {"FNAME":"pierre","LNAME":"dujoie","NB_VAL":1}
+rowtime: 2020/05/31 09:59:18.972 Z, key: 4, value: {"FNAME":"jacques","LNAME":"dupont"}
+rowtime: 2020/05/31 09:59:17.619 Z, key: 2, value: {"FNAME":"pierre","LNAME":"dujoie"}
+rowtime: 2020/05/31 09:59:18.972 Z, key: jacques|+|dupont, value: {"FNAME":"jacques","LNAME":"dupont","NB_VAL":1}
+rowtime: 2020/05/31 09:59:17.600 Z, key: frank|+|polet, value: {"FNAME":"frank","LNAME":"polet","NB_VAL":1}
+rowtime: 2020/05/31 09:59:17.600 Z, key: 1, value: {"FNAME":"frank","LNAME":"polet"}
+rowtime: 2020/05/31 09:59:17.621 Z, key: 3, value: {"FNAME":"paul","LNAME":"durant"}
+^CTopic printing ceased
+ksql> select * from REF_VIEW where ROWKEY='frank|+|polet';
++------------------------------+------------------------------+------------------------------+------------------------------+
+|ROWKEY                        |FNAME                         |LNAME                         |NB_VAL                        |
++------------------------------+------------------------------+------------------------------+------------------------------+
+|frank|+|polet                 |frank                         |polet                         |1                             |
+Query terminated
+ksql> 
+
+
+--------------------------------------------------------------------------------
+-- WORKING CASE : test of "key/value" store
+-- tips: the aggregate query should only be on key field + aggr. function !
+--       Otherwise the new key value is a composite of different values and so you don't know what to put in your where clause
+         like we see in the above example ( rowkey = |frank|+|polet )
+         Also, don't specifically need to create data in topic with key, key field can be specified in stream definition
+         (might result in a repartitioning) 
+--------------------------------------------------------------------------------
+
+
+>CREATE STREAM st_1
+>  (fname VARCHAR, lname varchar)
+>  WITH (kafka_topic='st_1', key='fname', value_format='json', partitions=1);
+
+ Message        
+----------------
+ Stream created 
+----------------
+ksql> INSERT INTO st_1 (fname, lname) VALUES ('a', 'valueaa');
+>INSERT INTO st_1 (fname, lname) VALUES ('b', 'valuebb');
+>INSERT INTO st_1 (fname, lname) VALUES ('c', 'valuecc');
+ksql> SET 'auto.offset.reset' = 'earliest';
+>
+Successfully changed local property 'auto.offset.reset' from 'earliest' to 'earliest'.
+ksql> select * from st_1 emit changes;
++-----------------------------------------+-----------------------------------------+-----------------------------------------+
+|ROWKEY                                   |FNAME                                    |LNAME                                    |
++-----------------------------------------+-----------------------------------------+-----------------------------------------+
+|a                                        |a                                        |valueaa                                  |
+|b                                        |b                                        |valuebb                                  |
+|c                                        |c                                        |valuecc                                  |
+^CQuery terminated
+ksql> 
+
+
+
+ksql> create table tbl_3 as
+>select fname , collect_list(lname) as lname
+>from st_1
+>group by fname
+>emit changes;
+
+ Message                             
+-------------------------------------
+ Created query with ID CTAS_TBL_3_97 
+-------------------------------------
+ksql> select * from tbl_3 emit changes;
++-----------------------------------------+-----------------------------------------+-----------------------------------------+
+|ROWKEY                                   |FNAME                                    |LNAME                                    |
++-----------------------------------------+-----------------------------------------+-----------------------------------------+
+|a                                        |a                                        |[valueaa]                                |
+|b                                        |b                                        |[valuebb]                                |
+|c                                        |c                                        |[valuecc]                                |
+^CQuery terminated
+ksql> select lname from tbl_3 where rowkey = 'a';
++-------------------------------------------------------------------------------------------------------------------------------+
+|LNAME                                                                                                                          |
++-------------------------------------------------------------------------------------------------------------------------------+
+|[valueaa]                                                                                                                      |
+Query terminated
+ksql> 
+
+ksql> show topics
+>;
+
+ Kafka Topic                 | Partitions | Partition Replicas 
+---------------------------------------------------------------
+ MOUNTAIN_VIEW               | 1          | 1                  
+ REF_VIEW                    | 4          | 1                  
+ SESSIONHANDLER_VIEW         | 1          | 1                  
+ TAB_CNT                     | 4          | 1                  
+ TAB_C_TITI                  | 4          | 1                  
+ TAB_FR                      | 4          | 1                  
+ TAB_VIEW                    | 4          | 1                  
+ TBL_1                       | 1          | 1                  
+ TBL_2                       | 1          | 1                  
+ TBL_3                       | 1          | 1                  
+ TBL_4                       | 1          | 1                  
+ TBL_5                       | 1          | 1                  
+ default_ksql_processing_log | 1          | 1                  
+ frank                       | 1          | 1                  
+ kref                        | 4          | 1                  
+ locations                   | 1          | 1                  
+ st_1                        | 1          | 1                  
+---------------------------------------------------------------
+ksql> show streams;
+
+ Stream Name         | Kafka Topic                 | Format 
+------------------------------------------------------------
+ KSQL_PROCESSING_LOG | default_ksql_processing_log | JSON   
+ ST_1                | st_1                        | JSON   
+------------------------------------------------------------
+ksql> terminate CTAS_TBL_1_83;
+
+ Message           
+-------------------
+ Query terminated. 
+-------------------
+ksql> show queries;
+
+ Query ID      | Query Type | Status    | Sink Name | Sink Kafka Topic | Query String                                                                                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ CTAS_TBL_3_97 | PERSISTENT | RUNNING:1 | TBL_3     | TBL_3            | CREATE TABLE TBL_3 WITH (KAFKA_TOPIC='TBL_3', PARTITIONS=1, REPLICAS=1) AS SELECT   ST_1.FNAME FNAME,   COLLECT_LIST(ST_1.LNAME) LNAME FROM ST_1 ST_1 GROUP BY ST_1.FNAME EMIT CHANGES; 
+---------------------------------------------------------------------------------------------------------------------------------
+For detailed information on a Query run: EXPLAIN <Query ID>;
+ksql> 
+
+
+
+--------------------------------------------------------------
+-- REST API Testing
+--------------------------------------------------------------
+
+
+[root@fprhel kafka]# curl -X "POST" "http://localhost:28088/ksql" \
+>      -H "Content-Type: application/vnd.ksql.v1+json; charset=utf-8" \
+>      -d $'{
+>   "ksql": "LIST STREAMS;",
+>   "streamsProperties": {}
+> }'
+[{"@type":"streams","statementText":"LIST STREAMS;","streams":[{"type":"STREAM","name":"KSQL_PROCESSING_LOG","topic":"default_ksql_processing_log","format":"JSON"},{"type":"STREAM","name":"ST_1","topic":"st_1","format":"JSON"}],"warnings":[]}][root@fprhel kafka]# 
+[root@fprhel kafka]# 
+
+
+[root@fprhel kafka]# curl -X "POST" "http://localhost:28088/query" \
+>      -H "Content-Type: application/vnd.ksql.v1+json; charset=utf-8" \
+>      -d $'{
+>   "ksql": "select lname from tbl_3 EMIT CHANGES;",
+>   "streamsProperties": {}
+> }'
+[{"header":{"queryId":"none","schema":"`LNAME` ARRAY<STRING>"}},
+
+
+
+
+
+
+
+
+{"row":{"columns":[["valueaa"]]}},
+{"row":{"columns":[["valuebb"]]}},
+{"row":{"columns":[["valuecc"]]}},
+
+
+Ctrl+C
+[root@fprhel kafka]# curl -X "POST" "http://localhost:28088/query" \
+>      -H "Content-Type: application/vnd.ksql.v1+json; charset=utf-8" \
+>      -d $'{
+>   "ksql": "SELECT * FROM TBL_3 EMIT CHANGES;",
+>   "streamsProperties": {}
+> }'
+[{"header":{"queryId":"none","schema":"`ROWKEY` STRING, `FNAME` STRING, `LNAME` ARRAY<STRING>"}},
+
+
+
+
+
+
+
+
+{"row":{"columns":["a","a",["valueaa"]]}},
+{"row":{"columns":["b","b",["valuebb"]]}},
+{"row":{"columns":["c","c",["valuecc"]]}},
+
+
+Ctrl+C
+
+curl -X "POST" "http://localhost:28088/query" \
+     -H "Content-Type: application/vnd.ksql.v1+json; charset=utf-8" \
+     -d $'{
+     "ksql": "SELECT LNAME FROM TBL_3 WHERE ROWKEY = \'a\';",
+     "streamsProperties": {
+       "ksql.streams.auto.offset.reset": "earliest"
+     }
+}'
+
+[root@fprhel kafka]# curl -X "POST" "http://localhost:28088/query" \
+>      -H "Content-Type: application/vnd.ksql.v1+json; charset=utf-8" \
+>      -d $'{
+>      "ksql": "SELECT LNAME FROM TBL_3 WHERE ROWKEY = \'a\';",
+>      "streamsProperties": {
+>        "ksql.streams.auto.offset.reset": "earliest"
+>      }
+> }'
+[{"header":{"queryId":"query_1590945507824","schema":"`LNAME` ARRAY<STRING>"}},
+{"row":{"columns":[["valueaa"]]}}][root@fprhel kafka]# 
+[root@fprhel kafka]# 
+
+curl -X "POST" "http://localhost:28088/query" \
+     -H "Content-Type: application/vnd.ksql.v1+json; charset=utf-8" \
+     -d $'{
+     "ksql": "SHOW TOPICS;",
+     "streamsProperties": {}
+}'
+
