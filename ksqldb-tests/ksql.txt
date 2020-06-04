@@ -330,7 +330,7 @@ ksql> select * from st_1 emit changes;
 |b                                        |b                                        |valuebb                                  |
 |c                                        |c                                        |valuecc                                  |
 ^CQuery terminated
-ksql> 
+ksql>
 
 
 
@@ -492,4 +492,145 @@ curl -X "POST" "http://localhost:28088/query" \
      "ksql": "SHOW TOPICS;",
      "streamsProperties": {}
 }'
+
+-----------------------------------------------------
+-- data enrichment with KSQL
+-----------------------------------------------------
+
+---  Create a data topic and put some data into it
+
+kafka-topics --zookeeper localhost:32181 --create --replication-factor 1 --partitions 1 --topic data
+kafka-console-producer --broker-list localhost:29092 --topic data                                                                 a
+{ "id": "1", "name": "ABCD", "age": 40 } 
+{ "id": "2", "name": "EFGH", "age": 41 }
+{ "id": "3", "name": "IJKL", "age": 42 }
+{ "id": "4", "name": "MNOP", "age": 43 }
+>>>>
+--- check content of topic 
+
+>root@fprhel:/# kafka-console-consumer --bootstrap-server localhost:29092 --topic data --from-beginning
+{ "id": 1, "name": "ABCD", "age": 40 }
+{ "id": 2, "name": "EFGH", "age": 41 }
+{ "id": 3, "name": "IJKL", "age": 42 }
+{ "id": 4, "name": "MNOP", "age": 43 }
+
+^CProcessed a total of 5 messages
+root@fprhel:/# 
+
+
+--- create a KSQL stream on the data topic
+create stream st_data ( id int, name string, age int) WITH (kafka_topic='data', value_format='json', partitions=1);
+
+
+ksql> create stream st_data ( id string, name string, age int) WITH (kafka_topic='data', value_format='json', partitions=1);
+
+ Message        
+----------------
+ Stream created 
+----------------
+ksql> SET 'auto.offset.reset' = 'earliest';
+Successfully changed local property 'auto.offset.reset' from 'earliest' to 'earliest'.
+
+-- check content of stream
+
+ksql> select id, name, age from st_data emit changes;
++-----------------------------------------+-----------------------------------------+-----------------------------------------+
+|ID                                       |NAME                                     |AGE                                      |
++-----------------------------------------+-----------------------------------------+-----------------------------------------+
+|1                                        |ABCD                                     |40                                       |
+|2                                        |EFGH                                     |41                                       |
+|3                                        |IJKL                                     |42                                       |
+|4                                        |MNOP                                     |43                                       |
+^CQuery terminated
+ksql> 
+
+-- create a reference topic
+kafka-topics --zookeeper localhost:32181 --create --replication-factor 1 --partitions 1 --topic reference
+
+root@fprhel:/# kafka-topics --zookeeper localhost:32181 --create --replication-factor 1 --partitions 1 --topic reference
+Created topic reference.
+
+-- add some reference data into the topic ( and use a key )
+kafka-console-producer --broker-list localhost:29092 --topic reference --property "parse.key=true" --property "key.separator=|"
+1|{ "id": "1", "reference": "ref ABCD" } 
+2|{ "id": "2", "reference": "ref EFGH" }
+3|{ "id": "3", "reference": "ref IJKL" }
+4|{ "id": "4", "reference": "ref MNOP" }
+
+-- create a kafka table on the topic
+
+CREATE TABLE reference
+   (
+     id int,
+     reference string
+   )
+   WITH (KAFKA_TOPIC = 'reference', VALUE_FORMAT='JSON');
+
+-- check table content
+ksql> select * from  REFERENCE emit changes;
++-----------------------------------------+-----------------------------------------+-----------------------------------------+
+|ROWKEY                                   |ID                                       |REFERENCE                                |
++-----------------------------------------+-----------------------------------------+-----------------------------------------+
+|1                                        |1                                        |ref ABCD                                 |
+|2                                        |2                                        |ref EFGH                                 |
+|3                                        |3                                        |ref IJKL                                 |
+|4                                        |4                                        |ref MNOP                                 |
+^CQuery terminated
+ksql> 
+
+-- DO THE ENRICHMENT QUERY
+
+ksql> SELECT st_data.id AS id, st_data.name, reference.reference FROM st_data
+>  LEFT JOIN reference ON reference.rowkey = st_data.id
+>  EMIT CHANGES;
++-------------------------------------------+-------------------------------------------+-------------------------------------------+
+|ID                                         |NAME                                       |REFERENCE                                  |
++-------------------------------------------+-------------------------------------------+-------------------------------------------+
+|1                                          |ABCD                                       |ref ABCD                                   |
+|2                                          |EFGH                                       |ref EFGH                                   |
+|3                                          |IJKL                                       |ref IJKL                                   |
+|4                                          |MNOP                                       |ref MNOP                                   |
+^CQuery terminated
+ksql> 
+
+-- create a stream (so an output topic) with the enriched data
+
+CREATE STREAM data_with_ref AS
+ SELECT st_data.id AS id, st_data.name, reference.reference FROM st_data
+  LEFT JOIN reference ON reference.rowkey = st_data.id
+  EMIT CHANGES;
+
+ksql> 
+>CREATE STREAM data_with_ref AS
+> SELECT st_data.id AS id, st_data.name, reference.reference FROM st_data
+>  LEFT JOIN reference ON reference.rowkey = st_data.id
+>  EMIT CHANGES;
+
+ Message                                      
+----------------------------------------------
+ Created query with ID CSAS_DATA_WITH_REF_103 
+----------------------------------------------
+
+-- check content of enriched stream in KSQL
+
+ksql> select * from data_with_ref emit changes;
++--------------------------------+--------------------------------+--------------------------------+--------------------------------+
+|ROWKEY                          |ID                              |NAME                            |REFERENCE                       |
++--------------------------------+--------------------------------+--------------------------------+--------------------------------+
+|1                               |1                               |ABCD                            |ref ABCD                        |
+|2                               |2                               |EFGH                            |ref EFGH                        |
+|3                               |3                               |IJKL                            |ref IJKL                        |
+|4                               |4                               |MNOP                            |ref MNOP                        |
+^CQuery terminated
+ksql>
+
+-- check content of underlying enriched topic with regular kafka consumer
+
+root@fprhel:/# kafka-console-consumer --bootstrap-server localhost:29092 --topic DATA_WITH_REF --from-beginning
+{"ID":"1","NAME":"ABCD","REFERENCE":"ref ABCD"}
+{"ID":"2","NAME":"EFGH","REFERENCE":"ref EFGH"}
+{"ID":"3","NAME":"IJKL","REFERENCE":"ref IJKL"}
+{"ID":"4","NAME":"MNOP","REFERENCE":"ref MNOP"}
+^CProcessed a total of 4 messages
+root@fprhel:/# 
 
