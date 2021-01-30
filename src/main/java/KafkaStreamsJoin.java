@@ -100,9 +100,7 @@ import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
-import org.apache.kafka.streams.kstream.KStream;
-import org.apache.kafka.streams.kstream.KTable;
-import org.apache.kafka.streams.kstream.Produced;
+import org.apache.kafka.streams.kstream.*;
 import org.apache.kafka.common.serialization.StringSerializer;
 
 
@@ -128,10 +126,12 @@ public class KafkaStreamsJoin {
 
     public static void main(String[] args) {
         KafkaStreamsJoin test = new KafkaStreamsJoin();
+        test.skipOutdated();
         test.getArgs(args);
         if (test.action.compareToIgnoreCase("enrich") == 0) test.enrichData();
         else if (test.action.compareToIgnoreCase("refdata") == 0) test.generateRefData();
         else if (test.action.compareToIgnoreCase("data") == 0) test.generateData();
+        else if (test.action.compareToIgnoreCase("outdated") == 0) test.skipOutdated();
         return;
     }
 
@@ -256,7 +256,7 @@ public class KafkaStreamsJoin {
 
         KStream<String, String> testStream = builder.stream("ktest");
         KStream<String, String> dataStream = testStream.selectKey( (k,v) -> {
-                return getKey (k,v);
+                return getValueByKey ("key",v);
         })   ;
 
         KTable<String, String> refStream = builder.table ("kref");
@@ -287,10 +287,13 @@ public class KafkaStreamsJoin {
     //--------------------------------------------------
 
     // ok this is not the right way to do a json field content extraction but this is fast
-    private String getKey ( String key, String value)
+    private String getValueByKey ( String key, String value)
     {
-        int pos = value.indexOf("\"key\": \"");
-        int start = pos + "\"key\": \"".length();
+        String field = "\""+key+"\": \"";
+//        int pos = value.indexOf("\"key\": \"");
+//        int start = pos + "\"key\": \"".length();
+        int pos = value.indexOf(field);
+        int start = pos + field.length();
         int end = value.indexOf("\"",start);
         String result = value.substring(start,end);
         return result;
@@ -304,6 +307,110 @@ public class KafkaStreamsJoin {
         //System.out.println("merging "+left+" with "+right);
         if (right == null) return left;
         String result = left.replace ("}", ","+right.substring(1) + "}");
+        return result;
+    }
+
+    //-------------------------------------------------------------------
+
+    /*
+
+    skipOutdatd function: purpose is to skip messages that are entering out of band, outdated based on business date
+    data ( field "time" in json record ).
+
+    1. create some topics
+
+    cd C:\frank\apache-zookeeper-3.6.0\bin
+    zkServer.cmd
+
+    cd C:\frank\apache-kafka-2.4.1\bin\windows
+    kafka-server-start.bat ..\..\config\server.properties
+
+    kafka-topics.bat  --zookeeper localhost:2181 --create --replication-factor 1 --partitions 1 --topic input
+    kafka-topics.bat  --zookeeper localhost:2181 --create --replication-factor 1 --partitions 1 --topic latest
+
+    2. produce some records
+    kafka-console-producer.bat --broker-list localhost:9092 --property "parse.key=true" --property "key.separator=:" --topic input
+    >cc:{"time": "20200101 00:00:00", "data": "cc0" }
+    >cc:{"time": "20200101 00:01:00", "data": "cc1" }
+    >cc:{"time": "20200101 00:05:00", "data": "cc5" }
+    >cc:{"time": "20200101 00:02:00", "data": "cc2" }
+    >cc:{"time": "20200101 00:07:00", "data": "cc7" }
+    >cc:{"time": "20200101 00:04:00", "data": "cc4" }
+    >cc:{"time": "20200101 00:09:00", "data": "cc9" }
+
+    3. check result in output
+    C:\frank\apache-kafka-2.4.1\bin\windows>kafka-console-consumer.bat --bootstrap-server localhost:9092 --from-beginning --property print.key=true
+    cc      {"time": "20200101 00:00:00", "data": "cc0" }
+    cc      {"time": "20200101 00:01:00", "data": "cc1" }
+    cc      {"time": "20200101 00:05:00", "data": "cc5" }
+    cc      {"time": "20200101 00:07:00", "data": "cc7" }
+    cc      {"time": "20200101 00:09:00", "data": "cc9" }
+
+     As we can see the records at 00:02:00 has been skip as last at that moment was 00:05:00
+     As we can see the records at 00:04:00 has been skip as last at that moment was 00:07:00
+     */
+
+    private void skipOutdated()
+    {
+        Properties props = new Properties();
+        props.put(StreamsConfig.APPLICATION_ID_CONFIG, this.applicationId);
+        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, this.bootstrapServer);
+        props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+        props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+        props.put(StreamsConfig.NUM_STREAM_THREADS_CONFIG,this.nbStreamsThread);
+
+        final StreamsBuilder builder = new StreamsBuilder();
+
+        KStream<String, String> intput = builder.stream("input", Consumed.with(Serdes.String(), Serdes.String()));
+        KTable<String, String> klatest = builder.table ("latest", Consumed.with(Serdes.String(), Serdes.String()))
+                // we rename "time" in "last" in ktable ( should not be a replace but a true json field rename, just short cut for demo)
+                // purpose: ktable record will be joined with input table - if we don't rename in joined result we will have 2 fields "time"
+                // which is not pretty to do extraction & comparison
+                .mapValues( value -> ( value.replace("time","last")) );
+
+        KStream<String, String> filterStream = intput.leftJoin(klatest,
+                (left, right) -> {
+                    // we merge the two json records if join returns result, else just return input record
+                    if (right != null) return left+right;
+                    return left;
+                })
+                .filter( (key, value) ->  keepLatest(key,value) )
+                .mapValues( value -> (  value = splitJson(value) ) );
+
+        // send result into result topic
+        filterStream.to("latest", Produced.with(Serdes.String(),Serdes.String()));
+
+        KafkaStreams streams = new KafkaStreams(builder.build(), props);
+        streams.cleanUp();
+        this.print (dateFormat.format(new Date()) + ">Starting ...");
+        streams.start();
+
+        Runtime.getRuntime().addShutdownHook(new Thread(streams::close));
+    }
+
+    //---------------------------------------------------------------------------------------------
+    // check if "time" is > than "last" - here just use string compare for ease of use ( maybe better to use date comparison )
+
+    private  boolean keepLatest (String key, String value)
+    {
+        String time = getValueByKey("time",value);
+        String last = getValueByKey("last",value);
+        System.out.println("keepLatest - "+time+" - "+last);
+        if (last.compareToIgnoreCase(time) > 0) return false;
+        return true;
+    }
+
+    //--------------------------------------------------
+
+    // ok this is not the best way to do a "double" json split but this is fast & works
+    private String splitJson (String value)
+    {
+        String result = "";
+        if (value == null) return null;
+        int pos = value.indexOf("}{");
+        if (pos >= 0) result = value.substring(0,pos+1);
+        else result = value;
+        System.out.println("splitJson "+result);
         return result;
     }
 
