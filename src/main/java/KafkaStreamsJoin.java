@@ -98,15 +98,22 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
+import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.kstream.*;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.apache.kafka.streams.processor.ProcessorContext;
+import org.apache.kafka.streams.state.KeyValueStore;
+import org.apache.kafka.streams.state.StoreBuilder;
+import org.apache.kafka.streams.state.Stores;
 
 
 import java.text.DateFormat;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.Optional;
 import java.util.Properties;
 
 public class KafkaStreamsJoin {
@@ -118,7 +125,7 @@ public class KafkaStreamsJoin {
     private int nbRefData = 5000;
     private int nbRec = 100000;
     private int recordLengh = 1024;
-    private String action = "enrich";
+    private String action = "outdated";
     private boolean verbose = true;
 
     //-------------------------------------------------------------------
@@ -126,7 +133,6 @@ public class KafkaStreamsJoin {
 
     public static void main(String[] args) {
         KafkaStreamsJoin test = new KafkaStreamsJoin();
-        test.skipOutdated();
         test.getArgs(args);
         if (test.action.compareToIgnoreCase("enrich") == 0) test.enrichData();
         else if (test.action.compareToIgnoreCase("refdata") == 0) test.generateRefData();
@@ -137,40 +143,37 @@ public class KafkaStreamsJoin {
 
     //-------------------------------------------------------------------
 
-    private void getArgs (String[] args)
-    {
-        for (int i = 0; i < args.length-1; i++)             // length-1 as last arg should be a value not an arg name
+    private void getArgs(String[] args) {
+        for (int i = 0; i < args.length - 1; i++)             // length-1 as last arg should be a value not an arg name
         {
-            if (args[i].compareToIgnoreCase("-nbRec") == 0) this.nbRec = Integer.parseInt(args[i+1]);
-            else if (args[i].compareToIgnoreCase("-nbRefData") == 0) this.nbRefData = Integer.parseInt(args[i+1]);
-            else if (args[i].compareToIgnoreCase("-recordLength") == 0) this.recordLengh = Integer.parseInt(args[i+1]);
-            else if (args[i].compareToIgnoreCase("-action") == 0) this.action = args[i+1];
-            else if (args[i].compareToIgnoreCase("-v") == 0)
-            {
-                if (args[i+1].compareToIgnoreCase("true") == 0) this.verbose = true;
+            if (args[i].compareToIgnoreCase("-nbRec") == 0) this.nbRec = Integer.parseInt(args[i + 1]);
+            else if (args[i].compareToIgnoreCase("-nbRefData") == 0) this.nbRefData = Integer.parseInt(args[i + 1]);
+            else if (args[i].compareToIgnoreCase("-recordLength") == 0)
+                this.recordLengh = Integer.parseInt(args[i + 1]);
+            else if (args[i].compareToIgnoreCase("-action") == 0) this.action = args[i + 1];
+            else if (args[i].compareToIgnoreCase("-v") == 0) {
+                if (args[i + 1].compareToIgnoreCase("true") == 0) this.verbose = true;
                 else this.verbose = false;
             }
         }
-        this.print ("Parameters:");
-        this.print (" nbRec       : "+this.nbRec);
-        this.print (" nbRefData   : "+this.nbRefData);
-        this.print (" recordLengh : "+this.recordLengh);
-        this.print (" action      : "+this.action);
-        this.print ("");
+        this.print("Parameters:");
+        this.print(" nbRec       : " + this.nbRec);
+        this.print(" nbRefData   : " + this.nbRefData);
+        this.print(" recordLengh : " + this.recordLengh);
+        this.print(" action      : " + this.action);
+        this.print("");
 
     }
 
     //-------------------------------------------------------------------
 
-    private void print (String data)
-    {
-        if (this.verbose) System.out.println (data);
+    private void print(String data) {
+        if (this.verbose) System.out.println(data);
     }
 
     //-------------------------------------------------------------------
 
-    private void generateRefData ()
-    {
+    private void generateRefData() {
         // Initialize producer
         final Properties props_producer = new Properties();
         props_producer.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, this.bootstrapServer);
@@ -182,17 +185,16 @@ public class KafkaStreamsJoin {
 
         final Producer<String, String> producer = new KafkaProducer<>(props_producer);
 
-        this.print (dateFormat.format(new Date())+">Ref data generation starting");
+        this.print(dateFormat.format(new Date()) + ">Ref data generation starting");
         StringBuilder dataBuilder = new StringBuilder("\"data\": \"");
-        for (int i = 0; i < this.recordLengh; i++) dataBuilder.append ("A");
+        for (int i = 0; i < this.recordLengh; i++) dataBuilder.append("A");
 
-        for (int i = 0; i  < this.nbRefData; i++)
-        {
+        for (int i = 0; i < this.nbRefData; i++) {
             try {
-                String key = "Key"+i;
-                String record = "{ \"key\": \""+key+"\","+"\"reference_data\": \"reference_"+i+"\"}";
+                String key = "Key" + i;
+                String record = "{ \"key\": \"" + key + "\"," + "\"reference_data\": \"reference_" + i + "\"}";
 
-                if (i%100 == 0) this.print (dateFormat.format(new Date())+">Produced "+i);
+                if (i % 100 == 0) this.print(dateFormat.format(new Date()) + ">Produced " + i);
 
                 final ProducerRecord<String, String> pr = new ProducerRecord<>("kref", key, record);
                 producer.send(pr);
@@ -200,14 +202,13 @@ public class KafkaStreamsJoin {
                 e.printStackTrace();
             }
         }
-        this.print (dateFormat.format(new Date())+">Ref data generation done");
+        this.print(dateFormat.format(new Date()) + ">Ref data generation done");
         producer.close();
     }
 
     //-------------------------------------------------------------------
 
-    private void generateData ()
-    {
+    private void generateData() {
         // Initialize producer
         final Properties props_producer = new Properties();
         props_producer.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, this.bootstrapServer);
@@ -219,17 +220,16 @@ public class KafkaStreamsJoin {
 
         final Producer<String, String> producer = new KafkaProducer<>(props_producer);
 
-        this.print (dateFormat.format(new Date())+">Data generation starting");
+        this.print(dateFormat.format(new Date()) + ">Data generation starting");
         StringBuilder dataBuilder = new StringBuilder("\"data\": \"");
-        for (int i = 0; i < this.recordLengh; i++) dataBuilder.append ("A");
+        for (int i = 0; i < this.recordLengh; i++) dataBuilder.append("A");
 
-        for (int i = 0; i  < this.nbRec; i++)
-        {
+        for (int i = 0; i < this.nbRec; i++) {
             try {
-                String key = "Key"+(i%this.nbRefData);
-                String record = "{ \"key\": \""+key+"\","+dataBuilder.toString()+i+"\"}";
+                String key = "Key" + (i % this.nbRefData);
+                String record = "{ \"key\": \"" + key + "\"," + dataBuilder.toString() + i + "\"}";
 
-                if (i%100 == 0) System.out.println(dateFormat.format(new Date())+">Produced "+i);
+                if (i % 100 == 0) System.out.println(dateFormat.format(new Date()) + ">Produced " + i);
 
                 final ProducerRecord<String, String> pr = new ProducerRecord<>("ktest", key, record);
                 producer.send(pr);
@@ -237,33 +237,32 @@ public class KafkaStreamsJoin {
                 e.printStackTrace();
             }
         }
-        this.print (dateFormat.format(new Date())+">Ref data generation done");
+        this.print(dateFormat.format(new Date()) + ">Ref data generation done");
         producer.close();
     }
 
     //-------------------------------------------------------------------
 
-    private void enrichData()
-    {
+    private void enrichData() {
         Properties props = new Properties();
         props.put(StreamsConfig.APPLICATION_ID_CONFIG, this.applicationId);
         props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, this.bootstrapServer);
         props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
         props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
-        props.put(StreamsConfig.NUM_STREAM_THREADS_CONFIG,this.nbStreamsThread);
+        props.put(StreamsConfig.NUM_STREAM_THREADS_CONFIG, this.nbStreamsThread);
 
         final StreamsBuilder builder = new StreamsBuilder();
 
         KStream<String, String> testStream = builder.stream("ktest");
-        KStream<String, String> dataStream = testStream.selectKey( (k,v) -> {
-                return getValueByKey ("key",v);
-        })   ;
+        KStream<String, String> dataStream = testStream.selectKey((k, v) -> {
+            return getValueByKey("key", v);
+        });
 
-        KTable<String, String> refStream = builder.table ("kref");
+        KTable<String, String> refStream = builder.table("kref");
 
         KStream<String, String> resultStream = dataStream.leftJoin(refStream,
                 (testValue, refValue) -> {
-                    return MergeValues(testValue,refValue);
+                    return MergeValues(testValue, refValue);
                 });
 
         // display join result
@@ -274,11 +273,10 @@ public class KafkaStreamsJoin {
                     });
         }
         // send result into result topic
-        resultStream.to("kresult", Produced.with (Serdes.String(), Serdes.String()) );
+        resultStream.to("kresult", Produced.with(Serdes.String(), Serdes.String()));
 
         KafkaStreams streams = new KafkaStreams(builder.build(), props);
-        streams.cleanUp();
-        this.print (dateFormat.format(new Date()) + ">Starting ...");
+        this.print(dateFormat.format(new Date()) + ">Starting ...");
         streams.start();
 
         Runtime.getRuntime().addShutdownHook(new Thread(streams::close));
@@ -287,26 +285,22 @@ public class KafkaStreamsJoin {
     //--------------------------------------------------
 
     // ok this is not the right way to do a json field content extraction but this is fast
-    private String getValueByKey ( String key, String value)
-    {
-        String field = "\""+key+"\": \"";
-//        int pos = value.indexOf("\"key\": \"");
-//        int start = pos + "\"key\": \"".length();
+    private String getValueByKey(String key, String value) {
+        String field = "\"" + key + "\": \"";
         int pos = value.indexOf(field);
         int start = pos + field.length();
-        int end = value.indexOf("\"",start);
-        String result = value.substring(start,end);
+        int end = value.indexOf("\"", start);
+        String result = value.substring(start, end);
         return result;
     }
 
     //--------------------------------------------------
 
     // ok this is not the right way to do a json concatenation but this is fast
-    private String MergeValues (String left, String right)
-    {
+    private String MergeValues(String left, String right) {
         //System.out.println("merging "+left+" with "+right);
         if (right == null) return left;
-        String result = left.replace ("}", ","+right.substring(1) + "}");
+        String result = left.replace("}", "," + right.substring(1) + "}");
         return result;
     }
 
@@ -350,68 +344,82 @@ public class KafkaStreamsJoin {
      As we can see the records at 00:04:00 has been skip as last at that moment was 00:07:00
      */
 
-    private void skipOutdated()
-    {
+    //-------------------------------------------------------------------
+
+    private void skipOutdated() {
+
         Properties props = new Properties();
         props.put(StreamsConfig.APPLICATION_ID_CONFIG, this.applicationId);
         props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, this.bootstrapServer);
         props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
         props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
-        props.put(StreamsConfig.NUM_STREAM_THREADS_CONFIG,this.nbStreamsThread);
+        props.put(StreamsConfig.NUM_STREAM_THREADS_CONFIG, this.nbStreamsThread);
 
         final StreamsBuilder builder = new StreamsBuilder();
 
-        KStream<String, String> intput = builder.stream("input", Consumed.with(Serdes.String(), Serdes.String()));
-        KTable<String, String> klatest = builder.table ("latest", Consumed.with(Serdes.String(), Serdes.String()))
-                // we rename "time" in "last" in ktable ( should not be a replace but a true json field rename, just short cut for demo)
-                // purpose: ktable record will be joined with input table - if we don't rename in joined result we will have 2 fields "time"
-                // which is not pretty to do extraction & comparison
-                .mapValues( value -> ( value.replace("time","last")) );
+        final StoreBuilder<KeyValueStore<String, String>> fpLastBusinessDateStore = Stores.keyValueStoreBuilder(Stores.persistentKeyValueStore("fpLastBusinessDateStore"), Serdes.String(), Serdes.String()).withCachingEnabled();
+        builder.addStateStore(fpLastBusinessDateStore);
 
-        KStream<String, String> filterStream = intput.leftJoin(klatest,
-                (left, right) -> {
-                    // we merge the two json records if join returns result, else just return input record
-                    if (right != null) return left+right;
-                    return left;
-                })
-                .filter( (key, value) ->  keepLatest(key,value) )
-                .mapValues( value -> (  value = splitJson(value) ) );
+        // stream input topic + publish only if business date > store date
+        KStream<String, String> input = builder.stream("input", Consumed.with(Serdes.String(), Serdes.String()));
+        input.transform(() -> new LastBusinessDateTransformer("fpLastBusinessDateStore"), "fpLastBusinessDateStore").to("latest");
 
-        // send result into result topic
-        filterStream.to("latest", Produced.with(Serdes.String(),Serdes.String()));
 
+        System.out.println(dateFormat.format(new Date()) + ">Starting ...");
         KafkaStreams streams = new KafkaStreams(builder.build(), props);
-        streams.cleanUp();
-        this.print (dateFormat.format(new Date()) + ">Starting ...");
         streams.start();
-
         Runtime.getRuntime().addShutdownHook(new Thread(streams::close));
+
     }
 
-    //---------------------------------------------------------------------------------------------
-    // check if "time" is > than "last" - here just use string compare for ease of use ( maybe better to use date comparison )
+    //-------------------------------------------------------------------------------
 
-    private  boolean keepLatest (String key, String value)
-    {
-        String time = getValueByKey("time",value);
-        String last = getValueByKey("last",value);
-        System.out.println("keepLatest - "+time+" - "+last);
-        if (last.compareToIgnoreCase(time) > 0) return false;
-        return true;
-    }
+    private class LastBusinessDateTransformer implements Transformer<String, String, KeyValue<String, String>> {
 
-    //--------------------------------------------------
+        private final DateFormat dateFormat = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+        private String storeName;
+        private KeyValueStore<String, String> store;
+ 
+        public LastBusinessDateTransformer(String storeName) {
+            this.storeName = storeName;
+        }
 
-    // ok this is not the best way to do a "double" json split but this is fast & works
-    private String splitJson (String value)
-    {
-        String result = "";
-        if (value == null) return null;
-        int pos = value.indexOf("}{");
-        if (pos >= 0) result = value.substring(0,pos+1);
-        else result = value;
-        System.out.println("splitJson "+result);
-        return result;
+        @Override
+        public void init(ProcessorContext context) {
+            store = (KeyValueStore<String, String>) context.getStateStore(storeName);
+        }
+
+        @Override
+        public KeyValue<String, String> transform(String key, String value) {
+            final Optional<String> storeObject = Optional.ofNullable(store.get(key));
+            KeyValue returnValue = KeyValue.pair(key, value);
+            if (storeObject.isPresent()) {
+                System.out.println("--> LastBusinessDateTransformer.transform() - found key=" + key + " value=" + storeObject.get());
+                try {
+                    Date time = dateFormat.parse(getValueByKey("time", value));
+                    Date last = dateFormat.parse(getValueByKey("time", storeObject.get()));
+                    if (last.after(time)) {
+                        System.out.println(" * store > ==> ignore: last = " + last + ", time = " + time);
+                        returnValue = null; // ignore as we have a older message than the store one
+                    } else
+                        System.out.println(" * store < ==> update: last = " + last + ", time = " + time);
+
+                } catch (ParseException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            if (returnValue != null) {
+                System.out.println(" * update store: key = " + key + ", value = " + value);
+                store.put(key, value);
+            }
+            return returnValue;
+        }
+
+        @Override
+        public void close() {
+        }
+
     }
 
     //--------------------------------------------------
