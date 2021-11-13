@@ -1,40 +1,91 @@
+import org.apache.kafka.common.serialization.Deserializer;
+import org.apache.kafka.common.serialization.Serializer;
 
+import java.util.ArrayList;
 
 public class SensorAggregator  {
 
-    private String data = "";
+    private ArrayList<Integer> values = new ArrayList<Integer>();
 
-    private int nbElement = 0;
-    private int total = 0;
+    //--------------------------------------------------
 
     public SensorAggregator() {
-        //System.out.println( "   **** SensorAggregator ");
     }
-    public String getData() {
-        return data;
-    }
+
+    //--------------------------------------------------
 
     public void setData(String data) {
-        this.data = this.data + " - " + data;
-        this.nbElement++;
-        this.setTotal(this.getTotal()+this.getSensorValue(data));
-        System.out.println( " ----- "+this.getTotal() + " --- " + this.getNbElement());
+       this.values.add(this.getSensorValue(data));
     }
+
+    //--------------------------------------------------
+
+    public String dump () {
+        String result = "";
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) result += "," + values.get(i);
+            else result += values.get(i);
+        }
+        return result;
+    }
+
+    //--------------------------------------------------
 
     public int getNbElement() {
-        return nbElement;
+        return values.size();
     }
 
-    public void setNbElement(int nbElement) {
-        this.nbElement = nbElement;
-    }
+    //--------------------------------------------------
 
     public int getTotal() {
+        int total = 0;
+        for (int i = 0; i < values.size(); i++) total += values.get(i);
         return total;
     }
 
-    public void setTotal(int total) {
-        this.total = total;
+    //--------------------------------------------------
+
+    public double getMean() {
+        int nbElement = this.getNbElement();
+        if (nbElement > 0) return (double)  (double)this.getTotal() / (double) nbElement;
+        return 0;
+    }
+
+    //--------------------------------------------------
+
+    public double getStandardDeviation()
+    {
+        double standardDeviation = 0.0;
+        double mean = this.getMean();
+
+        for(int num: this.values) {
+            standardDeviation += Math.pow(num - mean, 2);
+        }
+
+        return Math.sqrt(standardDeviation/this.getNbElement());
+    }
+
+    //--------------------------------------------------
+
+    public byte [] serializeValues () {
+        String result = "";
+        for (int i = 0; i < values.size(); i++)
+        {
+            if (i > 0) result += ",";
+            result += values.get(i);
+        }
+        return result.getBytes();
+    }
+
+    //--------------------------------------------------
+
+    public void deserializeValues ( String data ) {
+        values = new ArrayList<Integer>();
+        String elements [] = data.split(",");
+        for (int i = 0; i < elements.length; i++)
+        {
+            values.add(Integer.parseInt(elements[i]));
+        }
     }
 
     //--------------------------------------------------
@@ -51,7 +102,5 @@ public class SensorAggregator  {
     }
 
     //--------------------------------------------------
-
-    // to do: from and to json
 
 }
