@@ -1,2 +1,3 @@
 On Nov 12 updated pom to use kafka streams library 2.7.1 instead of 2.4.1
 Older apps not yet retested 
+use new token
