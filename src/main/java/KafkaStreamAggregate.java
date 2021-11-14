@@ -104,7 +104,7 @@ public class KafkaStreamAggregate {
 
     private void aggregate(String[] args) {
         Properties props = new Properties();
-        props.put(StreamsConfig.APPLICATION_ID_CONFIG,  UUID.randomUUID().toString() ) ; //this.applicationId);
+        props.put(StreamsConfig.APPLICATION_ID_CONFIG, this.applicationId);   // for debug:  UUID.randomUUID().toString() ) ;
         props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, this.bootstrapServer);
         props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
         props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
@@ -114,12 +114,12 @@ public class KafkaStreamAggregate {
         // generate some data into input topic
         this.print(dateFormat.format(new Date()) + ">Starting data generator thread ...");
 
-/* UNCOMMENT to generate some data
+        // COMMENT out next bloc to NOT generate some data
         DataGenerator dataGenerator = new DataGenerator();
         dataGenerator.init(this.verbose, this.bootstrapServer, this.topicName);
         Thread dataGeneratorThread = new Thread(dataGenerator);
         dataGeneratorThread.start();
-*/
+
         this.print(dateFormat.format(new Date()) + ">Initializing stream ...");
         final StreamsBuilder builder = new StreamsBuilder();
 
