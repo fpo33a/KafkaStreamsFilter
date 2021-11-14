@@ -42,18 +42,18 @@ Terminer le programme de commandes (O/N) ? o
 SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
 SLF4J: Defaulting to no-operation (NOP) logger implementation
 SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
-2021/11/13 14:52:40>Starting ...
->   map : [Key0@1636809855000/1636809865000] : NB ELE : 1 : TOTAL : 1 : MEAN : 1.0 : STDDEV : 0.0 : VALUES : 1
->   map : [Key0@1636809860000/1636809870000] : NB ELE : 4 : TOTAL : 20 : MEAN : 5.0 : STDDEV : 3.1622776601683795 : VALUES : 1,9,3,7
->   map : [Key0@1636809865000/1636809875000] : NB ELE : 3 : TOTAL : 19 : MEAN : 6.333333333333333 : STDDEV : 2.494438257849294 : VALUES : 9,3,7
->   map : [Key1@1636809860000/1636809870000] : NB ELE : 4 : TOTAL : 415 : MEAN : 103.75 : STDDEV : 1.7853571071357126 : VALUES : 101,104,104,106
->   map : [Key1@1636809865000/1636809875000] : NB ELE : 4 : TOTAL : 415 : MEAN : 103.75 : STDDEV : 1.7853571071357126 : VALUES : 101,104,104,106
->   map : [Key2@1636809860000/1636809870000] : NB ELE : 4 : TOTAL : 815 : MEAN : 203.75 : STDDEV : 2.5860201081971503 : VALUES : 201,208,203,203
->   map : [Key2@1636809865000/1636809875000] : NB ELE : 4 : TOTAL : 815 : MEAN : 203.75 : STDDEV : 2.5860201081971503 : VALUES : 201,208,203,203
->   map : [Key3@1636809860000/1636809870000] : NB ELE : 4 : TOTAL : 1218 : MEAN : 304.5 : STDDEV : 3.5 : VALUES : 302,310,301,305
->   map : [Key3@1636809865000/1636809875000] : NB ELE : 4 : TOTAL : 1218 : MEAN : 304.5 : STDDEV : 3.5 : VALUES : 302,310,301,305
->   map : [Key4@1636809860000/1636809870000] : NB ELE : 4 : TOTAL : 1617 : MEAN : 404.25 : STDDEV : 2.48746859276655 : VALUES : 404,408,404,401
->   map : [Key4@1636809865000/1636809875000] : NB ELE : 4 : TOTAL : 1617 : MEAN : 404.25 : STDDEV : 2.48746859276655 : VALUES : 404,408,404,401
+2021/11/14 10:31:12>Starting ...
+{ "key": "Key0", "window": "Window{startMs=1636809855000, endMs=1636809865000}", "nbele": 1, "total": 1, "mean": 1.0, "stddev": 0.0, "values": [1] }
+{ "key": "Key0", "window": "Window{startMs=1636809860000, endMs=1636809870000}", "nbele": 4, "total": 20, "mean": 5.0, "stddev": 3.1622776601683795, "values": [1,9,3,7] }
+{ "key": "Key0", "window": "Window{startMs=1636809865000, endMs=1636809875000}", "nbele": 3, "total": 19, "mean": 6.333333333333333, "stddev": 2.494438257849294, "values": [9,3,7] }
+{ "key": "Key1", "window": "Window{startMs=1636809860000, endMs=1636809870000}", "nbele": 4, "total": 415, "mean": 103.75, "stddev": 1.7853571071357126, "values": [101,104,104,106] }
+{ "key": "Key1", "window": "Window{startMs=1636809865000, endMs=1636809875000}", "nbele": 4, "total": 415, "mean": 103.75, "stddev": 1.7853571071357126, "values": [101,104,104,106] }
+{ "key": "Key2", "window": "Window{startMs=1636809860000, endMs=1636809870000}", "nbele": 4, "total": 815, "mean": 203.75, "stddev": 2.5860201081971503, "values": [201,208,203,203] }
+{ "key": "Key2", "window": "Window{startMs=1636809865000, endMs=1636809875000}", "nbele": 4, "total": 815, "mean": 203.75, "stddev": 2.5860201081971503, "values": [201,208,203,203] }
+{ "key": "Key3", "window": "Window{startMs=1636809860000, endMs=1636809870000}", "nbele": 4, "total": 1218, "mean": 304.5, "stddev": 3.5, "values": [302,310,301,305] }
+{ "key": "Key3", "window": "Window{startMs=1636809865000, endMs=1636809875000}", "nbele": 4, "total": 1218, "mean": 304.5, "stddev": 3.5, "values": [302,310,301,305] }
+{ "key": "Key4", "window": "Window{startMs=1636809860000, endMs=1636809870000}", "nbele": 4, "total": 1617, "mean": 404.25, "stddev": 2.48746859276655, "values": [404,408,404,401] }
+{ "key": "Key4", "window": "Window{startMs=1636809865000, endMs=1636809875000}", "nbele": 4, "total": 1617, "mean": 404.25, "stddev": 2.48746859276655, "values": [404,408,404,401] }
 
 
  */
@@ -104,7 +104,7 @@ public class KafkaStreamAggregate {
 
     private void aggregate(String[] args) {
         Properties props = new Properties();
-        props.put(StreamsConfig.APPLICATION_ID_CONFIG, this.applicationId);
+        props.put(StreamsConfig.APPLICATION_ID_CONFIG,  UUID.randomUUID().toString() ) ; //this.applicationId);
         props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, this.bootstrapServer);
         props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
         props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
@@ -138,7 +138,7 @@ public class KafkaStreamAggregate {
             }
         } ;
 
-        KTable<Windowed<String>, SensorAggregator> testTable = builder.stream(this.topicName, Consumed.with(Serdes.String(), Serdes.String()))
+        KTable<Windowed<String>, SensorAggregator> aggregatedStream = builder.stream(this.topicName, Consumed.with(Serdes.String(), Serdes.String()))
                 .groupByKey()
                 //Add a 10 second window and slide the hopping time window in 5 second steps
                 .windowedBy(TimeWindows.of(Duration.ofSeconds(10).toMillis()).advanceBy(Duration.ofSeconds(5).toMillis()))
@@ -151,11 +151,19 @@ public class KafkaStreamAggregate {
                            )
                 );
 
-        KStream<Windowed<String>, SensorAggregator> testStream = testTable.toStream()
+        // convert the windowed <key>, sensorAggregator into a more usable <string (key),string (json of aggregated values)> stream
+        KStream<String, String> convertedStream = aggregatedStream.toStream()
                 .map((Windowed<String> key, SensorAggregator value) -> {
-                    System.out.println(">   map : " + key   + " : NB ELE : " +  value.getNbElement() + " : TOTAL : " + value.getTotal() + " : MEAN : " + value.getMean() + " : STDDEV : " + value.getStandardDeviation()+ " : VALUES : "+value.dump());
-                    return new KeyValue<>(key, value);
+                    // System.out.println(">   map : " + key   + " : NB ELE : " +  value.getNbElement() + " : TOTAL : " + value.getTotal() + " : MEAN : " + value.getMean() + " : STDDEV : " + value.getStandardDeviation()+ " : VALUES : "+value.dump());
+                    String jsonResult = "{ \"key\": \""+key.key() + "\", \"window\": \""+key.window() + "\", \"nbele\": " + value.getNbElement() + ", \"total\": " + value.getTotal() + ", \"mean\": " + value.getMean() + ", \"stddev\": " + value.getStandardDeviation()+", \"values\": ["+ value.dump() + "] }";
+                    System.out.println(jsonResult);
+                    return new KeyValue<>(key.key(), jsonResult);
                 });
+
+
+        // convert stream to ktable so at this stage this could be use later on to do a join on a stream and compare some values
+        KTable<String, String> convertedTable = convertedStream.toTable();
+
 
         KafkaStreams streams = new KafkaStreams(builder.build(), props);
         this.print(dateFormat.format(new Date()) + ">Starting ...");
